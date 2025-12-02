@@ -50,8 +50,24 @@ function uploadToCloudinary(buffer) {
   });
 }
 
+// Hàm lấy tất cả ảnh đã upload từ Cloudinary
+async function getAllImages() {
+  try {
+    const result = await cloudinary.search
+      .expression("folder:png-uploads")
+      .sort_by("created_at", "desc")
+      .max_results(50)
+      .execute();
+    
+    return result.resources.map(resource => resource.secure_url);
+  } catch (error) {
+    console.error("Error fetching images from Cloudinary:", error);
+    return [];
+  }
+}
+
 // Hàm tạo HTML
-function generateHTML(error, success, images) {
+function generateHTML(error, success, images, successCount = 0) {
   const errorBox = error
     ? `
     <div class="error-box">
@@ -65,10 +81,16 @@ function generateHTML(error, success, images) {
     ? `
     <div class="success-box">
         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-        <p>Upload thành công ${images.length} ảnh lên Cloudinary!</p>
+        <p>Upload thành công ${successCount} ảnh lên Cloudinary!</p>
     </div>
     `
     : "";
+
+  const galleryTitle = images.length > 0 ? `
+    <div class="gallery-header">
+        <h2>🖼️ Thư viện ảnh (${images.length} ảnh)</h2>
+    </div>
+  ` : "";
 
   const imageGallery =
     images.length > 0
@@ -78,14 +100,19 @@ function generateHTML(error, success, images) {
           .map(
             (img, idx) => `
             <div class="image-item">
-                <img src="${img}" alt="Uploaded image ${idx + 1}">
+                <img src="${img}" alt="Uploaded image ${idx + 1}" loading="lazy">
             </div>
         `
           )
           .join("")}
     </div>
     `
-      : "";
+      : `
+    <div class="empty-gallery">
+        <svg viewBox="0 0 24 24" width="48" height="48"><path fill="rgba(255,255,255,0.2)" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+        <p>Chưa có ảnh nào được upload</p>
+    </div>
+    `;
 
   return `
     <!DOCTYPE html>
@@ -119,7 +146,7 @@ function generateHTML(error, success, images) {
                 border-radius: 24px;
                 padding: 48px;
                 width: 100%;
-                max-width: 600px;
+                max-width: 700px;
                 box-shadow: 
                     0 32px 64px rgba(0, 0, 0, 0.4),
                     inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -315,11 +342,23 @@ function generateHTML(error, success, images) {
                 font-size: 0.95rem;
             }
             
+            .gallery-header {
+                margin-top: 32px;
+                margin-bottom: 16px;
+                padding-top: 24px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            .gallery-header h2 {
+                color: #fff;
+                font-size: 1.25rem;
+                font-weight: 500;
+            }
+            
             .image-gallery {
                 display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-                gap: 16px;
-                margin-top: 24px;
+                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                gap: 12px;
             }
             
             .image-item {
@@ -339,6 +378,19 @@ function generateHTML(error, success, images) {
             
             .image-item:hover img {
                 transform: scale(1.05);
+            }
+            
+            .empty-gallery {
+                text-align: center;
+                padding: 40px 20px;
+                margin-top: 24px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            .empty-gallery p {
+                color: rgba(255, 255, 255, 0.4);
+                margin-top: 12px;
+                font-size: 0.9rem;
             }
             
             .rules {
@@ -437,6 +489,7 @@ function generateHTML(error, success, images) {
                 </button>
             </form>
             
+            ${galleryTitle}
             ${imageGallery}
             
             <div class="rules">
@@ -508,13 +561,15 @@ function generateHTML(error, success, images) {
     `;
 }
 
-// Route trang chủ
-app.get("/", (req, res) => {
-  res.send(generateHTML("", false, []));
+// Route trang chủ - Hiển thị tất cả ảnh đã upload
+app.get("/", async (req, res) => {
+  const images = await getAllImages();
+  res.send(generateHTML("", false, images));
 });
 
-app.get("/api", (req, res) => {
-  res.send(generateHTML("", false, []));
+app.get("/api", async (req, res) => {
+  const images = await getAllImages();
+  res.send(generateHTML("", false, images));
 });
 
 // Route xử lý upload
@@ -533,14 +588,17 @@ app.post("/api/upload", (req, res) => {
         errorMessage = "Field không hợp lệ!";
       }
 
-      return res.send(generateHTML(errorMessage, false, []));
+      const images = await getAllImages();
+      return res.send(generateHTML(errorMessage, false, images));
     } else if (err) {
-      return res.send(generateHTML(err.message, false, []));
+      const images = await getAllImages();
+      return res.send(generateHTML(err.message, false, images));
     }
 
     if (!req.files || req.files.length === 0) {
+      const images = await getAllImages();
       return res.send(
-        generateHTML("Vui lòng chọn ít nhất một file ảnh PNG!", false, [])
+        generateHTML("Vui lòng chọn ít nhất một file ảnh PNG!", false, images)
       );
     }
 
@@ -550,18 +608,20 @@ app.post("/api/upload", (req, res) => {
         uploadToCloudinary(file.buffer)
       );
       const results = await Promise.all(uploadPromises);
+      const uploadCount = results.length;
 
-      // Lấy URL của các ảnh đã upload
-      const imageUrls = results.map((result) => result.secure_url);
+      // Lấy lại tất cả ảnh từ Cloudinary (bao gồm ảnh vừa upload)
+      const allImages = await getAllImages();
 
-      res.send(generateHTML("", true, imageUrls));
+      res.send(generateHTML("", true, allImages, uploadCount));
     } catch (uploadError) {
       console.error("Cloudinary upload error:", uploadError);
+      const images = await getAllImages();
       res.send(
         generateHTML(
           "Lỗi khi upload lên Cloudinary: " + uploadError.message,
           false,
-          []
+          images
         )
       );
     }
