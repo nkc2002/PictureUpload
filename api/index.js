@@ -1,14 +1,14 @@
-const express = require('express');
-const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
+const express = require("express");
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
 
 const app = express();
 
 // Cấu hình Cloudinary từ biến môi trường
 cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 // Cấu hình Multer với memory storage
@@ -16,67 +16,78 @@ const storage = multer.memoryStorage();
 
 // File filter: Chỉ cho phép file PNG
 const fileFilter = (req, file, cb) => {
-    if (file.mimetype === 'image/png') {
-        cb(null, true);
-    } else {
-        cb(new Error('Chỉ chấp nhận file ảnh PNG!'), false);
-    }
+  if (file.mimetype === "image/png") {
+    cb(null, true);
+  } else {
+    cb(new Error("Chỉ chấp nhận file ảnh PNG!"), false);
+  }
 };
 
 // Khởi tạo multer với các quy định
 const upload = multer({
-    storage: storage,
-    fileFilter: fileFilter,
-    limits: {
-        fileSize: 1 * 1024 * 1024 // Giới hạn 1MB
-    }
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 1 * 1024 * 1024, // Giới hạn 1MB
+  },
 });
 
 // Hàm upload lên Cloudinary
 function uploadToCloudinary(buffer) {
-    return new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-            {
-                folder: 'png-uploads',
-                resource_type: 'image',
-                format: 'png'
-            },
-            (error, result) => {
-                if (error) reject(error);
-                else resolve(result);
-            }
-        );
-        uploadStream.end(buffer);
-    });
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: "png-uploads",
+        resource_type: "image",
+        format: "png",
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+    uploadStream.end(buffer);
+  });
 }
 
 // Hàm tạo HTML
 function generateHTML(error, success, images) {
-    const errorBox = error ? `
+  const errorBox = error
+    ? `
     <div class="error-box">
         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
         <p>${error}</p>
     </div>
-    ` : '';
+    `
+    : "";
 
-    const successBox = success ? `
+  const successBox = success
+    ? `
     <div class="success-box">
         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
         <p>Upload thành công ${images.length} ảnh lên Cloudinary!</p>
     </div>
-    ` : '';
+    `
+    : "";
 
-    const imageGallery = images.length > 0 ? `
+  const imageGallery =
+    images.length > 0
+      ? `
     <div class="image-gallery">
-        ${images.map((img, idx) => `
+        ${images
+          .map(
+            (img, idx) => `
             <div class="image-item">
                 <img src="${img}" alt="Uploaded image ${idx + 1}">
             </div>
-        `).join('')}
+        `
+          )
+          .join("")}
     </div>
-    ` : '';
+    `
+      : "";
 
-    return `
+  return `
     <!DOCTYPE html>
     <html lang="vi">
     <head>
@@ -498,53 +509,63 @@ function generateHTML(error, success, images) {
 }
 
 // Route trang chủ
-app.get('/', (req, res) => {
-    res.send(generateHTML('', false, []));
+app.get("/", (req, res) => {
+  res.send(generateHTML("", false, []));
 });
 
-app.get('/api', (req, res) => {
-    res.send(generateHTML('', false, []));
+app.get("/api", (req, res) => {
+  res.send(generateHTML("", false, []));
 });
 
 // Route xử lý upload
-app.post('/api/upload', (req, res) => {
-    const uploadMultiple = upload.array('images', 10);
-    
-    uploadMultiple(req, res, async (err) => {
-        if (err instanceof multer.MulterError) {
-            let errorMessage = 'Có lỗi xảy ra khi upload!';
-            
-            if (err.code === 'LIMIT_FILE_SIZE') {
-                errorMessage = 'File quá lớn! Kích thước tối đa là 1MB cho mỗi file.';
-            } else if (err.code === 'LIMIT_FILE_COUNT') {
-                errorMessage = 'Số lượng file vượt quá giới hạn cho phép!';
-            } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-                errorMessage = 'Field không hợp lệ!';
-            }
-            
-            return res.send(generateHTML(errorMessage, false, []));
-        } else if (err) {
-            return res.send(generateHTML(err.message, false, []));
-        }
-        
-        if (!req.files || req.files.length === 0) {
-            return res.send(generateHTML('Vui lòng chọn ít nhất một file ảnh PNG!', false, []));
-        }
-        
-        try {
-            // Upload tất cả ảnh lên Cloudinary
-            const uploadPromises = req.files.map(file => uploadToCloudinary(file.buffer));
-            const results = await Promise.all(uploadPromises);
-            
-            // Lấy URL của các ảnh đã upload
-            const imageUrls = results.map(result => result.secure_url);
-            
-            res.send(generateHTML('', true, imageUrls));
-        } catch (uploadError) {
-            console.error('Cloudinary upload error:', uploadError);
-            res.send(generateHTML('Lỗi khi upload lên Cloudinary: ' + uploadError.message, false, []));
-        }
-    });
+app.post("/api/upload", (req, res) => {
+  const uploadMultiple = upload.array("images", 10);
+
+  uploadMultiple(req, res, async (err) => {
+    if (err instanceof multer.MulterError) {
+      let errorMessage = "Có lỗi xảy ra khi upload!";
+
+      if (err.code === "LIMIT_FILE_SIZE") {
+        errorMessage = "File quá lớn! Kích thước tối đa là 1MB cho mỗi file.";
+      } else if (err.code === "LIMIT_FILE_COUNT") {
+        errorMessage = "Số lượng file vượt quá giới hạn cho phép!";
+      } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
+        errorMessage = "Field không hợp lệ!";
+      }
+
+      return res.send(generateHTML(errorMessage, false, []));
+    } else if (err) {
+      return res.send(generateHTML(err.message, false, []));
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.send(
+        generateHTML("Vui lòng chọn ít nhất một file ảnh PNG!", false, [])
+      );
+    }
+
+    try {
+      // Upload tất cả ảnh lên Cloudinary
+      const uploadPromises = req.files.map((file) =>
+        uploadToCloudinary(file.buffer)
+      );
+      const results = await Promise.all(uploadPromises);
+
+      // Lấy URL của các ảnh đã upload
+      const imageUrls = results.map((result) => result.secure_url);
+
+      res.send(generateHTML("", true, imageUrls));
+    } catch (uploadError) {
+      console.error("Cloudinary upload error:", uploadError);
+      res.send(
+        generateHTML(
+          "Lỗi khi upload lên Cloudinary: " + uploadError.message,
+          false,
+          []
+        )
+      );
+    }
+  });
 });
 
 // Export cho Vercel
