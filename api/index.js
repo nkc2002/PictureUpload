@@ -4,6 +4,10 @@ const cloudinary = require("cloudinary").v2;
 
 const app = express();
 
+// Middleware để parse JSON
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Cấu hình Cloudinary từ biến môi trường
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -50,7 +54,17 @@ function uploadToCloudinary(buffer) {
   });
 }
 
-// Hàm lấy tất cả ảnh đã upload từ Cloudinary
+// Hàm xóa ảnh từ Cloudinary
+function deleteFromCloudinary(publicId) {
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader.destroy(publicId, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+}
+
+// Hàm lấy tất cả ảnh đã upload từ Cloudinary (bao gồm public_id)
 async function getAllImages() {
   try {
     const result = await cloudinary.search
@@ -58,8 +72,11 @@ async function getAllImages() {
       .sort_by("created_at", "desc")
       .max_results(50)
       .execute();
-    
-    return result.resources.map(resource => resource.secure_url);
+
+    return result.resources.map((resource) => ({
+      url: resource.secure_url,
+      publicId: resource.public_id,
+    }));
   } catch (error) {
     console.error("Error fetching images from Cloudinary:", error);
     return [];
@@ -67,7 +84,13 @@ async function getAllImages() {
 }
 
 // Hàm tạo HTML
-function generateHTML(error, success, images, successCount = 0) {
+function generateHTML(
+  error,
+  success,
+  images,
+  successCount = 0,
+  deleteSuccess = false
+) {
   const errorBox = error
     ? `
     <div class="error-box">
@@ -86,11 +109,24 @@ function generateHTML(error, success, images, successCount = 0) {
     `
     : "";
 
-  const galleryTitle = images.length > 0 ? `
+  const deleteSuccessBox = deleteSuccess
+    ? `
+    <div class="success-box">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        <p>Đã xóa ảnh thành công!</p>
+    </div>
+    `
+    : "";
+
+  const galleryTitle =
+    images.length > 0
+      ? `
     <div class="gallery-header">
         <h2>🖼️ Thư viện ảnh (${images.length} ảnh)</h2>
+        <p class="gallery-hint">Hover vào ảnh để xem các tùy chọn</p>
     </div>
-  ` : "";
+  `
+      : "";
 
   const imageGallery =
     images.length > 0
@@ -100,7 +136,21 @@ function generateHTML(error, success, images, successCount = 0) {
           .map(
             (img, idx) => `
             <div class="image-item">
-                <img src="${img}" alt="Uploaded image ${idx + 1}" loading="lazy">
+                <img src="${img.url}" alt="Uploaded image ${
+              idx + 1
+            }" loading="lazy">
+                <div class="image-overlay">
+                    <a href="${img.url}" download="image-${
+              idx + 1
+            }.png" class="action-btn download-btn" title="Tải xuống">
+                        <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                    </a>
+                    <button class="action-btn delete-btn" onclick="deleteImage('${
+                      img.publicId
+                    }')" title="Xóa ảnh">
+                        <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                </div>
             </div>
         `
           )
@@ -355,6 +405,12 @@ function generateHTML(error, success, images, successCount = 0) {
                 font-weight: 500;
             }
             
+            .gallery-hint {
+                color: rgba(255, 255, 255, 0.4);
+                font-size: 0.8rem;
+                margin-top: 4px;
+            }
+            
             .image-gallery {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -378,6 +434,62 @@ function generateHTML(error, success, images, successCount = 0) {
             
             .image-item:hover img {
                 transform: scale(1.05);
+            }
+            
+            .image-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+            
+            .image-item:hover .image-overlay {
+                opacity: 1;
+            }
+            
+            .action-btn {
+                width: 44px;
+                height: 44px;
+                border-radius: 50%;
+                border: none;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+                text-decoration: none;
+            }
+            
+            .action-btn svg {
+                width: 20px;
+                height: 20px;
+                fill: white;
+            }
+            
+            .download-btn {
+                background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            }
+            
+            .download-btn:hover {
+                transform: scale(1.1);
+                box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+            }
+            
+            .delete-btn {
+                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            }
+            
+            .delete-btn:hover {
+                transform: scale(1.1);
+                box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
             }
             
             .empty-gallery {
@@ -451,6 +563,77 @@ function generateHTML(error, success, images, successCount = 0) {
             @keyframes spin {
                 to { transform: rotate(360deg); }
             }
+            
+            /* Modal xác nhận xóa */
+            .modal-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 1000;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .modal-overlay.show {
+                display: flex;
+            }
+            
+            .modal {
+                background: #1a1a3e;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 16px;
+                padding: 32px;
+                max-width: 400px;
+                text-align: center;
+            }
+            
+            .modal h3 {
+                color: #fff;
+                margin-bottom: 12px;
+            }
+            
+            .modal p {
+                color: rgba(255, 255, 255, 0.6);
+                margin-bottom: 24px;
+            }
+            
+            .modal-buttons {
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+            }
+            
+            .modal-btn {
+                padding: 12px 24px;
+                border-radius: 8px;
+                border: none;
+                font-family: 'Outfit', sans-serif;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            .modal-btn-cancel {
+                background: rgba(255, 255, 255, 0.1);
+                color: #fff;
+            }
+            
+            .modal-btn-cancel:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            
+            .modal-btn-delete {
+                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                color: #fff;
+            }
+            
+            .modal-btn-delete:hover {
+                box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+            }
         </style>
     </head>
     <body>
@@ -467,6 +650,7 @@ function generateHTML(error, success, images, successCount = 0) {
             
             ${errorBox}
             ${successBox}
+            ${deleteSuccessBox}
             
             <form action="/api/upload" method="POST" enctype="multipart/form-data" id="uploadForm">
                 <div class="upload-area" id="dropZone">
@@ -503,6 +687,18 @@ function generateHTML(error, success, images, successCount = 0) {
             </div>
         </div>
         
+        <!-- Modal xác nhận xóa -->
+        <div class="modal-overlay" id="deleteModal">
+            <div class="modal">
+                <h3>🗑️ Xác nhận xóa</h3>
+                <p>Bạn có chắc chắn muốn xóa ảnh này? Hành động này không thể hoàn tác.</p>
+                <div class="modal-buttons">
+                    <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Hủy</button>
+                    <button class="modal-btn modal-btn-delete" id="confirmDeleteBtn">Xóa ảnh</button>
+                </div>
+            </div>
+        </div>
+        
         <script>
             const dropZone = document.getElementById('dropZone');
             const fileInput = document.getElementById('fileInput');
@@ -511,6 +707,10 @@ function generateHTML(error, success, images, successCount = 0) {
             const submitBtn = document.getElementById('submitBtn');
             const btnText = document.querySelector('.btn-text');
             const loading = document.getElementById('loading');
+            const deleteModal = document.getElementById('deleteModal');
+            const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+            
+            let imageToDelete = null;
             
             // Click để mở file picker
             dropZone.addEventListener('click', () => fileInput.click());
@@ -555,6 +755,56 @@ function generateHTML(error, success, images, successCount = 0) {
                 loading.classList.add('show');
                 submitBtn.disabled = true;
             });
+            
+            // Xóa ảnh
+            function deleteImage(publicId) {
+                imageToDelete = publicId;
+                deleteModal.classList.add('show');
+            }
+            
+            function closeModal() {
+                deleteModal.classList.remove('show');
+                imageToDelete = null;
+            }
+            
+            // Click ra ngoài modal để đóng
+            deleteModal.addEventListener('click', (e) => {
+                if (e.target === deleteModal) {
+                    closeModal();
+                }
+            });
+            
+            // Xác nhận xóa
+            confirmDeleteBtn.addEventListener('click', async () => {
+                if (!imageToDelete) return;
+                
+                confirmDeleteBtn.disabled = true;
+                confirmDeleteBtn.textContent = 'Đang xóa...';
+                
+                try {
+                    const response = await fetch('/api/delete', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ publicId: imageToDelete })
+                    });
+                    
+                    if (response.ok) {
+                        window.location.href = '/?deleted=true';
+                    } else {
+                        const data = await response.json();
+                        alert('Lỗi: ' + data.error);
+                        closeModal();
+                    }
+                } catch (error) {
+                    alert('Có lỗi xảy ra khi xóa ảnh');
+                    closeModal();
+                }
+                
+                confirmDeleteBtn.disabled = false;
+                confirmDeleteBtn.textContent = 'Xóa ảnh';
+            });
         </script>
     </body>
     </html>
@@ -564,12 +814,14 @@ function generateHTML(error, success, images, successCount = 0) {
 // Route trang chủ - Hiển thị tất cả ảnh đã upload
 app.get("/", async (req, res) => {
   const images = await getAllImages();
-  res.send(generateHTML("", false, images));
+  const deleted = req.query.deleted === "true";
+  res.send(generateHTML("", false, images, 0, deleted));
 });
 
 app.get("/api", async (req, res) => {
   const images = await getAllImages();
-  res.send(generateHTML("", false, images));
+  const deleted = req.query.deleted === "true";
+  res.send(generateHTML("", false, images, 0, deleted));
 });
 
 // Route xử lý upload
@@ -626,6 +878,23 @@ app.post("/api/upload", (req, res) => {
       );
     }
   });
+});
+
+// Route xóa ảnh
+app.post("/api/delete", async (req, res) => {
+  try {
+    const { publicId } = req.body;
+
+    if (!publicId) {
+      return res.status(400).json({ error: "Thiếu publicId" });
+    }
+
+    await deleteFromCloudinary(publicId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Delete error:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Export cho Vercel
