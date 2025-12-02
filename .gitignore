@@ -1,0 +1,8 @@
+node_modules
+uploads
+.vercel
+.env
+.env.local
+*.log
+.playwright-mcp
+
